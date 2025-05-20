@@ -1,3 +1,5 @@
+from functools import singledispatch, singledispatchmethod
+
 import win32com.client as win32
 
 from visio_connector import VisioConnector
@@ -46,12 +48,12 @@ class VisioDiagram:
         self.page.PageSheet.Cells("PageWidth").Formula = f"{required_width} in"
         self.page.PageSheet.Cells("PageHeight").Formula = f"{required_height} in"
 
-    def add_shape(self, shape_id, x, y, width, height, text=None):
-        """添加矩形形状"""
-        shape = VisioShape(
-            self.page, shape_id, x, y, width, height, text
-        )
-        self.shapes[shape_id] = shape
+    def add_shape(self, shape):
+        """统一添加形状的方法，支持两种调用方式：
+        1. 传入已创建的VisioShape对象
+        2. 传入参数动态创建形状（需提供x/y/width/height）
+        """
+        self.shapes[shape.shape_id] = shape
         return shape
 
     def add_connector(self, from_id, to_id, line_style="solid"):
