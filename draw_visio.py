@@ -26,8 +26,6 @@ def create_diagram_from_json(json_file_path, output_path):
     for connector_config in config.get("connectors", []):
         connector = VisioConnector(
             page=diagram.page,
-            from_shape=diagram.shapes[connector_config.pop("from")],
-            to_shape=diagram.shapes[connector_config.pop("to")],
             **connector_config
         )
         diagram.add_connector(connector)
