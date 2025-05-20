@@ -1,40 +1,90 @@
+import base64
+import os.path
+import re
 from dataclasses import dataclass, field
 from typing import Optional, Tuple, Union
-
-import win32com.client as win32
 
 
 @dataclass
 class VisioShape:
-    """Visio图形基类（支持像素单位、图片嵌入）"""
+    """Visio图形基类（支持带单位的参数输入）"""
     page: object
     shape_id: str
-    x: float  # X坐标（像素）
-    y: float  # Y坐标（像素）
-    width: float  # 宽度（像素）
-    height: float  # 高度（像素）
+    x: str  # X坐标（如"100px"、"2.5in"）
+    y: str  # Y坐标（如"150px"、"3cm"）
+    width: str  # 宽度（如"200px"、"1.5in"）
+    height: str  # 高度（如"100px"、"50mm"）
     text: Optional[str] = None
     bg_rgb: Optional[Tuple[int, int, int]] = None
     line_color: Optional[Tuple[int, int, int]] = None
     line_pattern: int = 1  # 线条模式（1=实线）
-    line_weight: float = 1.0  # 线宽（像素）
+    line_weight: str = "1pt"  # 线宽（如"2pt"、"1.5px"）
     fill_pattern: int = 1  # 填充模式
-    image: Optional[Union[str, bytes]] = None  # 支持URL或Base64编码的图片
+    image: Optional[Union[str, bytes]] = None
     shape: object = field(init=False, repr=False)
 
     def __post_init__(self):
-        """初始化后自动创建形状并设置样式"""
-        self._convert_px_to_visio_units()  # 像素转Visio单位
+        """初始化后自动解析单位并创建形状"""
+        self._parse_units()  # 解析带单位的参数
         self._create_shape()
         self._set_image() if self.image else None
 
-    def _convert_px_to_visio_units(self):
-        """将像素转换为Visio默认单位（英寸和磅）"""
-        self.x = self._px_to_in(self.x)
-        self.y = self._px_to_in(self.y)
-        self.width = self._px_to_in(self.width)
-        self.height = self._px_to_in(self.height)
-        self.line_weight = self._px_to_pt(self.line_weight)
+    def _parse_units(self):
+        """解析所有带单位的参数"""
+        # 坐标和尺寸转换（支持px/in/cm/mm → in）
+        self.x_in = self._parse_length(self.x)
+        self.y_in = self._parse_length(self.y)
+        self.width_in = self._parse_length(self.width)
+        self.height_in = self._parse_length(self.height)
+
+        # 线宽转换（支持px/pt → pt）
+        self.line_weight_pt = self._parse_line_weight(self.line_weight)
+
+    def _parse_length(self, value: str) -> float:
+        """
+        解析长度单位（支持px/in/cm/mm/ft）
+        格式: 数值 + 单位（如 "100px", "2.5in", "50mm"）
+        默认单位: px
+        """
+        match = re.match(r"^([\d.]+)\s*(px|in|cm|mm|ft)?$", str(value).strip(), re.IGNORECASE)
+        if not match:
+            raise ValueError(f"无效的长度格式: {value}")
+
+        num, unit = float(match.group(1)), (match.group(2) or "px").lower()
+
+        # 转换为英寸（Visio内部单位）
+        if unit == "px":
+            return self._px_to_in(num)
+        elif unit == "in":
+            return num
+        elif unit == "cm":
+            return num / 2.54
+        elif unit == "mm":
+            return num / 25.4
+        elif unit == "ft":
+            return num * 12
+        else:
+            raise ValueError(f"不支持的单位: {unit}")
+
+    def _parse_line_weight(self, value: str) -> float:
+        """
+        解析线宽单位（支持px/pt）
+        格式: 数值 + 单位（如 "2pt", "1.5px"）
+        默认单位: pt
+        """
+        match = re.match(r"^([\d.]+)\s*(px|pt)?$", str(value).strip(), re.IGNORECASE)
+        if not match:
+            raise ValueError(f"无效的线宽格式: {value}")
+
+        num, unit = float(match.group(1)), (match.group(2) or "pt").lower()
+
+        # 转换为磅（Visio线宽单位）
+        if unit == "px":
+            return self._px_to_pt(num)
+        elif unit == "pt":
+            return num
+        else:
+            raise ValueError(f"不支持的单位: {unit}")
 
     @staticmethod
     def _px_to_in(px: float) -> float:
@@ -43,53 +93,52 @@ class VisioShape:
 
     @staticmethod
     def _px_to_pt(px: float) -> float:
-        """像素转磅（1磅=1/72英寸）"""
+        """像素转磅（1磅=1/72英寸）[[61][65]]"""
         return px * 72 / 96  # 1pt = (1/72)in = (1/72)*96px ≈ 1.33px
 
     def _create_shape(self):
-        """创建矩形并设置基础样式"""
+        """创建矩形（使用解析后的英寸单位）"""
         self.shape = self.page.DrawRectangle(
-            self.x, self.y,
-            self.x + self.width,
-            self.y + self.height
+            self.x_in, self.y_in,
+            self.x_in + self.width_in,
+            self.y_in + self.height_in
         )
         if self.text:
             self.shape.Text = self.text
         self._set_style()
 
     def _set_style(self):
-        """设置线条和填充样式"""
+        """设置样式（使用解析后的磅单位）"""
         if self.bg_rgb:
             self.shape.CellsU("FillForegnd").FormulaU = f"RGB({self.bg_rgb[0]},{self.bg_rgb[1]},{self.bg_rgb[2]})"
         if self.line_color:
             self.shape.CellsU(
                 "LineColor").FormulaU = f"RGB({self.line_color[0]},{self.line_color[1]},{self.line_color[2]})"
         self.shape.CellsU("LinePattern").FormulaU = str(self.line_pattern)
-        self.shape.CellsU("LineWeight").FormulaU = f"{self.line_weight} pt"
+        self.shape.CellsU("LineWeight").FormulaU = f"{self.line_weight_pt} pt"
         self.shape.CellsU("FillPattern").FormulaU = str(self.fill_pattern)
 
+    # 图片嵌入方法保持不变（同之前实现）
     def _set_image(self):
-        """嵌入图片（支持URL、Base64或本地文件路径）"""
+        """嵌入图片（支持URL/Base64/本地路径）"""
         try:
-            if isinstance(self.image, str):
-                if self.image.startswith(('http://', 'https://')):
-                    self._insert_image_from_url(self.image)
-                else:
-                    # 尝试作为本地文件路径处理
-                    with open(self.image, "rb") as image_file:
-                        encoded_string = base64.b64encode(image_file.read()).decode()
-                    self._insert_image_from_base64(encoded_string)
-            elif isinstance(self.image, (str, bytes)):
+            if self.image.startswith(('http://', 'https://')):
+                self._insert_image_from_url(self.image)
+            elif os.path.isfile(self.image):
+                with open(self.image, "rb") as f:
+                    self._insert_image_from_base64(base64.b64encode(f.read()).decode())
+            else:
                 self._insert_image_from_base64(self.image)
         except Exception as e:
-            print(f"插入{self.shape_id}的图片时发生错误: {e}")
+            print(f"图片嵌入失败: {e}")
+
     def _insert_image_from_url(self, url: str):
         """通过URL插入图片"""
-        img_shape = self.page.Import(url)  # 插入图片
-        img_shape.CellsU("Width").FormulaU = f"{self.width} in"
-        img_shape.CellsU("Height").FormulaU = f"{self.height} in"
-        img_shape.CellsU("PinX").FormulaU = f"{self.x + self.width / 2} in"
-        img_shape.CellsU("PinY").FormulaU = f"{self.y + self.height / 2} in"
+        img_shape = self.page.Import(url)
+        img_shape.CellsU("Width").FormulaU = f"{self.width_in} in"
+        img_shape.CellsU("Height").FormulaU = f"{self.height_in} in"
+        img_shape.CellsU("PinX").FormulaU = f"{self.x_in + self.width_in / 2} in"
+        img_shape.CellsU("PinY").FormulaU = f"{self.y_in + self.height_in / 2} in"
 
     def _insert_image_from_base64(self, data: Union[str, bytes]):
         """通过Base64插入图片（需临时文件）"""
@@ -102,24 +151,23 @@ class VisioShape:
             self._insert_image_from_url(tmp.name)
 
     @property
-    def center_x(self) -> float:
-        """中心X坐标（像素）"""
-        return self._in_to_px(self.shape.Cells("PinX").Result(""))
+    def center_x(self) -> str:
+        """返回带单位的中心X坐标（px）"""
+        return f"{self._in_to_px(self.shape.Cells('PinX').Result(''))}px"
 
     @property
-    def center_y(self) -> float:
-        """中心Y坐标（像素）"""
-        return self._in_to_px(self.shape.Cells("PinY").Result(""))
+    def center_y(self) -> str:
+        """返回带单位的中心Y坐标（px）"""
+        return f"{self._in_to_px(self.shape.Cells('PinY').Result(''))}px"
 
     @staticmethod
     def _in_to_px(inch: float) -> float:
         """英寸转像素"""
-        return inch * 96  # 1英寸=96像素
+        return inch * 96
 
 
 if __name__ == "__main__":
     from visio_diagram import VisioDiagram
-    import base64
 
     # 初始化Visio绘图
     diagram = VisioDiagram()
@@ -128,8 +176,8 @@ if __name__ == "__main__":
     shape1 = VisioShape(
         page=diagram.page,
         shape_id="rect_basic",
-        x=100, y=150,  # 像素单位（自动转换为英寸）
-        width=200, height=100,  # 像素单位
+        x="100px", y="150px",  # 像素单位（自动转换为英寸）
+        width="200px", height="100px",  # 像素单位
         text="基础矩形",
         line_color=(0, 0, 0),  # 黑色边框
         bg_rgb=(255, 255, 0)  # 黄色填充
@@ -141,37 +189,32 @@ if __name__ == "__main__":
     shape2 = VisioShape(
         page=diagram.page,
         shape_id="rect_dashed",
-        x=400, y=150,
-        width=150, height=150,
+        x="400px", y="150px",
+        width="150px", height="150px",
         text="虚线边框",
         line_pattern=2,  # 虚线
-        line_weight=2.5  # 2.5像素线宽
+        line_weight="2.5px"  # 2.5像素线宽
     )
     diagram.add_shape(shape2)
 
     # 测试案例3：嵌入Base64图片（验证图片功能）
-    try:
-        with open("frogw.png", "rb") as f:
-            image_base64 = base64.b64encode(f.read()).decode()
-        shape3 = VisioShape(
-            page=diagram.page,
-            shape_id="image_shape",
-            x=100, y=350,
-            width=180, height=120,
-            image=image_base64  # Base64编码图片
-        )
-        diagram.add_shape(shape3)
-    except FileNotFoundError:
-        print("未找到frogw.png文件，跳过图片嵌入测试")
-    except Exception as e:
-        print(f"图片嵌入测试失败：{e}")
+    with open("frog.png", "rb") as f:
+        image_base64 = base64.b64encode(f.read()).decode()
+    shape3 = VisioShape(
+        page=diagram.page,
+        shape_id="image_shape",
+        x="100px", y="350px",
+        width="180px", height="120px",
+        image="frog.png"  # Base64编码图片
+    )
+    diagram.add_shape(shape3)
 
     # 测试案例4：边界值测试（最小尺寸和零值）
     shape4 = VisioShape(
         page=diagram.page,
         shape_id="rect_min_size",
-        x=10, y=10,  # 极小坐标
-        width=1, height=1,  # 1px尺寸（约0.01英寸）
+        x="10px", y="10px",  # 极小坐标
+        width="1px", height="1px",  # 1px尺寸（约0.01英寸）
         text="极小矩形",
         line_color=(255, 0, 0)  # 红色边框
     )
@@ -181,8 +224,8 @@ if __name__ == "__main__":
     shape5 = VisioShape(
         page=diagram.page,
         shape_id="web_image",
-        x=400, y=350,
-        width=200, height=150,
+        x="400px", y="350px",
+        width="200px", height="150px",
         image="https://pic2.zhimg.com/v2-d7ace568e5ecb33ce176d37c2a11a833_1440w.jpg"  # 直接使用URL
     )
     diagram.add_shape(shape5)
