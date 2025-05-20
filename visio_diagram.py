@@ -1,9 +1,4 @@
-from functools import singledispatch, singledispatchmethod
-
 import win32com.client as win32
-
-from visio_connector import VisioConnector
-from visio_shape import VisioShape
 
 
 class VisioDiagram:
@@ -56,17 +51,8 @@ class VisioDiagram:
         self.shapes[shape.shape_id] = shape
         return shape
 
-    def add_connector(self, from_id, to_id, line_style="solid"):
+    def add_connector(self, connector):
         """添加连接线"""
-        if from_id not in self.shapes or to_id not in self.shapes:
-            raise ValueError("无效的形状ID")
-
-        connector = VisioConnector(
-            self.page,
-            self.shapes[from_id],
-            self.shapes[to_id],
-            line_style
-        )
         self.connectors.append(connector)
         return connector
 

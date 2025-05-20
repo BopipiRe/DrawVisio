@@ -151,14 +151,12 @@ class VisioShape:
             self._insert_image_from_url(tmp.name)
 
     @property
-    def center_x(self) -> str:
-        """返回带单位的中心X坐标（px）"""
-        return f"{self._in_to_px(self.shape.Cells('PinX').Result(''))}px"
+    def center_x(self) -> float:
+        return self.shape.Cells("PinX").Result("")
 
     @property
-    def center_y(self) -> str:
-        """返回带单位的中心Y坐标（px）"""
-        return f"{self._in_to_px(self.shape.Cells('PinY').Result(''))}px"
+    def center_y(self) -> float:
+        return self.shape.Cells("PinY").Result("")
 
     @staticmethod
     def _in_to_px(inch: float) -> float:

@@ -1,5 +1,6 @@
 import json
 
+from visio_connector import VisioConnector
 from visio_diagram import VisioDiagram
 from visio_shape import VisioShape
 
@@ -23,11 +24,13 @@ def create_diagram_from_json(json_file_path, output_path):
 
     # 添加所有连接线
     for connector_config in config.get("connectors", []):
-        diagram.add_connector(
-            from_id=connector_config["from"],
-            to_id=connector_config["to"],
-            line_style=connector_config.get("style", "solid")
+        connector = VisioConnector(
+            page=diagram.page,
+            from_shape=diagram.shapes[connector_config.pop("from")],
+            to_shape=diagram.shapes[connector_config.pop("to")],
+            **connector_config
         )
+        diagram.add_connector(connector)
 
     diagram.save_and_close(output_path)
 
