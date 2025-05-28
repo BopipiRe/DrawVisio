@@ -21,20 +21,19 @@ class VisioPage:
 
         self._parse_units()
 
-        self.page.PageSheet.Cells("PageWidth").Formula = self.width_in  # 设置宽度（英寸）
-        self.page.PageSheet.Cells("PageHeight").Formula = self.height_in  # 设置高度
+        self.page.PageSheet.Cells("PageWidth").Formula = self.width  # 设置宽度（英寸）
+        self.page.PageSheet.Cells("PageHeight").Formula = self.height  # 设置高度
 
-        if self.backgroundImage:
-            # self._set_background_image()
-            pass
-        elif self.backgroundColor:
-            self._set_background_color()
+        # if self.backgroundImage:
+        #     self._set_background_image()
+        # elif self.backgroundColor:
+        #     self._set_background_color()
 
     def _parse_units(self):
         """解析所有带单位的参数"""
         # 坐标和尺寸转换（px → in）
-        self.height_in = UnitParser.px_to_in(self.height)
-        self.width_in = UnitParser.px_to_in(self.width)
+        self.height = UnitParser.px_to_in(self.height)
+        self.width = UnitParser.px_to_in(self.width)
 
     def _set_background_image(self):
         """设置背景"""
@@ -57,7 +56,7 @@ class VisioPage:
 
     def _set_background_color(self):
         """通过添加矩形形状实现背景色"""
-        rect = self.page.DrawRectangle(0, 0, self.width_in, self.height_in)
+        rect = self.page.DrawRectangle(0, 0, self.width, self.height)
 
         if self.backgroundColor.startswith("#"):
             r, g, b = UnitParser.hex_to_rgb(self.backgroundColor)

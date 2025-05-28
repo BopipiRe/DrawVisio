@@ -53,12 +53,12 @@ class UnitParser:
     @staticmethod
     def in_to_px(inch: float) -> float:
         """英寸转像素"""
-        return inch * 96
+        return inch * 72
 
     @staticmethod
     def px_to_in(px: float) -> float:
         """像素转英寸（假设96DPI）"""
-        return px / 96  # 1英寸=96像素
+        return px / 72  # 1英寸=96像素
 
     @staticmethod
     def px_to_pt(px: float) -> float:
@@ -66,9 +66,10 @@ class UnitParser:
         return px * 72 / 96  # 1pt = (1/72)in = (1/72)*96px ≈ 1.33px
 
     @staticmethod
-    def hex_to_rgb(hex_color: str) -> tuple:
+    def hex_to_rgb(hex_color: str) -> str:
         """将 #FFFFFF 格式转换为 (R, G, B) 元组"""
-        hex_color = hex_color.lstrip("#")
+        hex_color = hex_color.strip().replace(" ", "").lstrip("#")
         if len(hex_color) == 3:  # 处理缩写格式如 #FFF
             hex_color = "".join([c * 2 for c in hex_color])
-        return tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+        rgb = list(str(int(hex_color[i:i + 2], 16)) for i in (0, 2, 4))
+        return ','.join(rgb)

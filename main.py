@@ -2,7 +2,28 @@ import json
 
 import win32com.client as win32
 
-import visio_page
+from visio_page import VisioPage
+from visio_shape import VisioShape
+
+
+def batch_set_zorder(shapes: list):
+    """
+    高效批量设置形状层级（通过shape.z_index属性控制）
+    参数：
+        shapes: Visio形状对象列表（需含z_index属性）
+    """
+    # 1. 按z_index升序排序（0=最底层，值越大越靠前）
+    sorted_shapes = sorted(shapes, key=lambda x: getattr(x, 'zIndex', 0))
+
+    # 2. 批量设置层级
+    visio = win32.Dispatch("Visio.Application")
+    visio.ScreenUpdating = False  # 关闭刷新提升性能
+
+    try:
+        for shape in sorted_shapes:
+            shape.shape.BringToFront()  # 每个形状仅需一次置顶
+    finally:
+        visio.ScreenUpdating = True
 
 
 def main(json_path):
@@ -18,7 +39,19 @@ def main(json_path):
 
     page_config = config.get("flowData", {})
 
-    visio_page.VisioPage(doc, page_config.get("name"), height=page_config.get("height"), width=page_config.get("width"))
+    # 创建页面
+    page = VisioPage(doc, page_config.get("name"), height=page_config.get("height"), width=page_config.get("width"))
+
+    # 创建shape
+    nodes = config.get("graphData").get("nodes")
+    shapes = []
+    for node in nodes:
+        if node.get('type') != 'act':
+            continue
+        shape = VisioShape(page=page.page, pageHeight=page_config.get("height"), **node)
+        shapes.append(shape)
+
+    batch_set_zorder(shapes)
 
     doc.Pages.Item(1).Delete(0)
 
