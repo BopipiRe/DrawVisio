@@ -2,6 +2,7 @@ import json
 
 import win32com.client as win32
 
+from visio_connector import VisioConnector
 from visio_page import VisioPage
 from visio_shape import VisioShape
 
@@ -44,14 +45,19 @@ def main(json_path):
 
     # 创建shape
     nodes = config.get("graphData").get("nodes")
+    edges = config.get("graphData").get("edges")
     shapes = []
-    for node in nodes:
-        if node.get('type') != 'act':
-            continue
-        shape = VisioShape(page=page.page, pageHeight=page_config.get("height"), **node)
-        shapes.append(shape)
+    if nodes:
+        for node in nodes:
+            # if node.get('type') != 'act' and node.get('type') != 'text':
+            #     continue
+            shape = VisioShape(page=page.page, pageHeight=page_config.get("height"), **node)
+            shapes.append(shape)
 
     batch_set_zorder(shapes)
+    if edges:
+        for edge in edges:
+            connector = VisioConnector(page=page.page, pageHeight=page_config.get("height"), config=edge)
 
     doc.Pages.Item(1).Delete(0)
 

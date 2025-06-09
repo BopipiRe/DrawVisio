@@ -1,94 +1,71 @@
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
-import re
+from typing import List, Optional, Dict, Any
+import win32com.client
+from utils import UnitParser
+
 
 @dataclass
 class VisioConnector:
-    """Visio连接线类（支持坐标单位转换和样式控制）"""
     page: object
-    from_point: str  # 起点坐标（如"100px,200px"或"2.5in,3cm"）
-    to_point: str    # 终点坐标（格式同起点）
-    line_style: str = "solid"  # 支持solid/dashed/dotted/dash_dot
-    label: Optional[str] = None
-    text_visible: bool = True
+    pageHeight: float
+    config: Dict[str, Any]
     connector: object = field(init=False, repr=False)
-    arrow_type: str = "arrow"  # none/arrow/diamond/circle
-    line_weight: str = "1pt"   # 线宽（支持px/pt单位）
-
-    # 单位转换常量
-    UNITS = {
-        "px": lambda x: x / 96,    # 像素转英寸（96dpi）
-        "in": lambda x: x,         # 英寸直接使用
-        "cm": lambda x: x / 2.54,  # 厘米转英寸
-        "mm": lambda x: x / 25.4,
-        "pt": lambda x: x / 72      # 磅转英寸
-    }
 
     def __post_init__(self):
-        """解析坐标单位并创建连接线"""
-        self.from_x, self.from_y = self._parse_point(self.from_point)
-        self.to_x, self.to_y = self._parse_point(self.to_point)
-        self._create_connector()
-        self._apply_style()
+        self.draw_connector()
 
-    def _parse_point(self, point_str: str) -> Tuple[float, float]:
-        """解析带单位的坐标字符串（如'100px,50mm'）"""
-        parts = [p.strip() for p in point_str.split(",")]
-        if len(parts) != 2:
-            raise ValueError(f"坐标格式错误，应为'x单位,y单位'，如'100px,2.5in'")
+    def draw_connector(self):
+        """绘制连接线（带所有可选样式）"""
 
-        x = self._parse_length(parts[0])
-        y = self._parse_length(parts[1])
-        return x, y
+        # 将点列表转换为一维坐标数组 [x1, y1, x2, y2, ...]
+        visio_points = [coord for point in self.config['pointsList']
+                                for coord in (UnitParser.px_to_in(point['x']),
+                                      UnitParser.px_to_in(self.pageHeight - point['y']))]
 
-    def _parse_length(self, value: str) -> float:
-        """解析带单位的长度值（如'100px'）"""
-        match = re.match(r"^([\d.]+)\s*(px|in|cm|mm|pt)?$", value, re.IGNORECASE)
-        if not match:
-            raise ValueError(f"无效的长度格式: {value}")
+        # 使用 DrawPolyline 绘制折线
+        connector = self.page.DrawPolyline(visio_points, 0)
 
-        num, unit = float(match.group(1)), (match.group(2) or "px").lower()
-        return self.UNITS[unit](num)
+        # 设置连接线样式
+        self._apply_edge_style(connector, self.config['properties']['edgeStyle'])
 
-    def _create_connector(self):
-        """创建连接线（自动转换为Visio内部英寸单位）"""
-        self.connector = self.page.DrawLine(
-            self.from_x, self.from_y,
-            self.to_x, self.to_y
-        )
+        # 添加文字（如果有）
+        if self.config['text'].get("value"):
+            self._add_connector_text(connector, self.config['text'], self.config['properties']['textStyle'])
 
-    def _apply_style(self):
-        """应用样式（线条、箭头、文本）"""
-        # 线条样式
-        pattern = {
-            "solid": 1,
-            "dashed": 2,
-            "dotted": 3,
-            "dash_dot": 4
-        }.get(self.line_style.lower(), 1)
-        self.connector.CellsU("LinePattern").FormulaU = str(pattern)
+        return connector
 
-        # 箭头样式
-        arrow_code = {
-            "none": 0,
-            "arrow": 1,
-            "diamond": 2,
-            "circle": 3
-        }.get(self.arrow_type.lower(), 1)
-        self.connector.CellsU("EndArrow").FormulaU = str(arrow_code)
+    def _apply_edge_style(self, connector, style):
+        """应用线条样式"""
+        # 线条颜色和宽度
+        connector.Cells("LineColor").Formula = f"RGB({UnitParser.hex_to_rgb(style['stroke'])})"
+        connector.Cells("LineWeight").Formula = f"{style['strokeWidth']} pt"
 
-        # 线宽（支持px/pt单位）
-        weight_pt = self._parse_length(self.line_weight) * 72  # 转换为磅
-        self.connector.CellsU("LineWeight").FormulaU = f"{weight_pt} pt"
+        # 虚线样式
+        if style['strokeDasharray']:
+            connector.Cells("LinePattern").Formula = "2"  # 虚线
+        else:
+            connector.Cells("LinePattern").Formula = "1"  # 实线
 
-        # 文本标签
-        if self.label:
-            self.connector.Text = self.label
-            transparency = 100 if not self.text_visible else 0
-            self.connector.CellsU("Char.Transparency").FormulaU = str(transparency)
+        # 箭头设置
+        if "targetArrow" in style:
+            connector.Cells("EndArrow").Formula = "1"  # 启用箭头
+            connector.Cells("EndArrowSize").Formula = "2"  # 中等大小
+            # connector.Cells("EndArrowColor").Formula = f"RGB({UnitParser.hex_to_rgb(style['targetArrow']['fill'])})"
 
-    def toggle_text_visibility(self):
-        """切换文本显隐状态"""
-        self.text_visible = not self.text_visible
-        transparency = 100 if not self.text_visible else 0
-        self.connector.CellsU("Char.Transparency").FormulaU = str(transparency)
+    def _add_connector_text(self, connector, text_data, text_style):
+        """添加连接线文字"""
+        connector.Text = text_data["value"]
+
+        # 设置文字样式
+        # char = connector.Characters
+        # char.Begin = 0
+        # char.End = len(connector.Text)
+        # char.Cells("Color").Formula = f"RGB({UnitParser.hex_to_rgb(text_style['color'])})"
+        # char.Cells("Size").Formula = f"{text_style['fontSize']} pt"
+        # char.Cells("Font").Formula = f'"{text_style.fontFamily}"'
+
+        # 定位文字
+        # connector.Cells("TxtPinX").Formula = f"={UnitParser.px_to_in(text_data['x'])}"
+        # connector.Cells("TxtPinY").Formula = f"={UnitParser.px_to_in(self.pageHeight - text_data['y'])}"
+        # connector.Cells("TxtLocPinX").Formula = "Width*0"
+        # connector.Cells("TxtLocPinY").Formula = "Height*0"

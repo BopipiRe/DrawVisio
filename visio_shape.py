@@ -64,30 +64,39 @@ class VisioShape:
 
     def _parse_units(self):
         """解析所有带单位的参数"""
-        # 坐标和尺寸转换（支持px → in）
-        self.y = self.pageHeight - self.y - self.height
+        # 坐标转换（支持px → in），从中心点转换为左上角点
+        self.y = self.pageHeight - self.y  # 先转换为页面坐标系
         self.x = UnitParser.px_to_in(self.x)
         self.y = UnitParser.px_to_in(self.y)
         self.width = UnitParser.px_to_in(self.width)
         self.height = UnitParser.px_to_in(self.height)
 
         # 线宽转换（px → pt）
-        self.properties.borderWidth = UnitParser.px_to_pt(self.properties.borderWidth)
+        if self.properties.borderWidth:
+            self.properties.borderWidth = UnitParser.px_to_pt(self.properties.borderWidth)
 
     def _create_shape(self):
-        """创建矩形（使用解析后的英寸单位）"""
+        """创建矩形（使用解析后的英寸单位），x,y现在是中心点坐标"""
+        # 计算左上角坐标
+        left = self.x - self.width / 2
+        top = self.y - self.height / 2
+
         self.shape = self.page.DrawRectangle(
-            self.x, self.y,
-            self.x + self.width,
-            self.y + self.height
+            left, top,
+            left + self.width,
+            top + self.height
         )
+        if self.properties.name:
+            self.shape.Text = self.properties.name
         self._set_style()
 
     def _set_style(self):
         """设置样式（使用解析后的磅单位）"""
-        if self.properties.name:
-            self.shape.Text = self.properties.name
-
+        if self.type == 'text':
+            # 文本形状：无边框、无填充
+            self.shape.Cells("LinePattern").Formula = "0"  # 无边框
+            self.shape.Cells("FillPattern").Formula = "0"  # 无填充
+            return
         if self.properties.fill.find('-') != -1:
             # 渐变色填充
             gradient_colors = self.properties.fill.split('-')
@@ -123,3 +132,7 @@ class VisioShape:
             self.shape.Cells("LinePattern").Formula = "2"  # 虚线
         else:
             self.shape.Cells("LinePattern").Formula = "1"  # 实线
+
+        if self.properties.rotate:
+            rotate_deg = float(self.properties.rotate) * 180 / 3.141592653589793
+            self.shape.Cells("Angle").Formula = f"{rotate_deg} deg"
